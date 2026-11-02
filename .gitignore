@@ -1,0 +1,26 @@
+# Firebase
+.firebase/
+*-debug.log
+firebase-debug.*.log
+.runtimeconfig.json
+
+# Qualquer arquivo local com segredos (a chave do OpenRouter fica só no localStorage)
+.env
+.env.*
+*.local.json
+secrets/
+client_secret*.json
+*credentials*.json
+*service-account*.json
+
+# Config do Firebase deste projeto (modelo em public/js/config/firebase-config.example.js)
+public/js/config/firebase-config.js
+
+# Livros: PDFs nunca vão para o repositório
+*.pdf
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+node_modules/

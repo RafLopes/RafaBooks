@@ -1,0 +1,39 @@
+{
+  "hosting": {
+    "site": "rafabook",
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+          { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
+        ]
+      },
+      {
+        "source": "**/*.@(js|css|html)",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "source": "/",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "source": "/s/**",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ],
+    "rewrites": [
+      { "source": "/s/**", "destination": "/index.html" }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "emulators": {
+    "hosting": { "port": 5000 }
+  }
+}

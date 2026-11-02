@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// Cada usuário só altera os próprios dados. Se o dono marcar a biblioteca como
+// pública (documento site/library), livros e lições dele ficam legíveis para
+// visitantes sem login — mas só para leitura.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isPublicLibrary(uid) {
+      return exists(/databases/$(database)/documents/site/library)
+        && get(/databases/$(database)/documents/site/library).data.ownerUid == uid;
+    }
+
+    // Qual biblioteca é pública. Uma vez criado, só o próprio dono altera ou remove.
+    match /site/library {
+      allow get: if true;
+      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /books/{bookId} {
+        allow read: if isOwner(uid) || isPublicLibrary(uid);
+        allow delete: if isOwner(uid);
+        allow create, update: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 300
+          // Nada que pareça uma chave de API deve chegar aqui.
+          && !('apiKey' in request.resource.data)
+          && !('openrouterKey' in request.resource.data);
+      }
+
+      match /lessons/{lessonId} {
+        allow read: if isOwner(uid) || isPublicLibrary(uid);
+        allow delete: if isOwner(uid);
+        allow create, update: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 300
+          && request.resource.data.steps is list
+          && !('apiKey' in request.resource.data)
+          && !('openrouterKey' in request.resource.data);
+      }
+    }
+
+    // Cópias públicas de lições: qualquer um lê pelo link (get), ninguém lista.
+    // Só o dono cria, atualiza ou apaga.
+    match /shared/{shareId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+        && request.resource.data.steps is list
+        && request.resource.data.steps.size() <= 20;
+      allow update: if request.auth != null
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+        && request.resource.data.steps is list
+        && request.resource.data.steps.size() <= 20;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
