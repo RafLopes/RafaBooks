@@ -108,9 +108,10 @@ function normalizePages(pages, validPages) {
  * @param {{ chunkChars: number, maxBookChars: number, maxIdeasPerChunk: number, maxFinalIdeas: number }} p.limits
  * @param {(msg: string, fraction: number) => void} [p.onProgress]
  * @param {AbortSignal} [p.signal]
+ * @param {Map<string, object>} [p.cache] partes já processadas; permite retomar após uma falha
  * @returns {Promise<{ summary: string, ideas: object[] }>}
  */
-export async function analyzeBook({ pages, client, model, book, existingThemes = [], limits, onProgress, signal }) {
+export async function analyzeBook({ pages, client, model, book, existingThemes = [], limits, onProgress, signal, cache = new Map() }) {
   const totalChars = pages.reduce((n, p) => n + p.text.length, 0);
   if (totalChars < 500) {
     throw new Error('Quase não há texto extraível neste PDF (pode ser um PDF escaneado). Use o modo manual.');
@@ -122,12 +123,28 @@ export async function analyzeBook({ pages, client, model, book, existingThemes =
   const validPages = new Set(pages.filter((p) => p.text).map((p) => p.page));
   const chunks = buildChunks(pages, limits.chunkChars);
   const header = bookHeader(book, existingThemes);
-  const ask = async (prompt) => parseJsonLoose(await client.chat({
-    model,
-    json: true,
-    signal,
-    messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: prompt }],
-  }));
+  // Uma resposta fora do formato JSON ganha uma segunda chance antes de falhar.
+  const ask = async (prompt, stage) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return parseJsonLoose(await client.chat({
+          model,
+          json: true,
+          signal,
+          messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: prompt }],
+        }));
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        if (err.name === 'SyntaxError' || /JSON/.test(err.message)) {
+          if (attempt < 1) continue;
+        }
+        const wrapped = new Error(`Falha ${stage}: ${err.message}`);
+        wrapped.cause = err;
+        throw wrapped;
+      }
+    }
+  };
+  const cacheKey = (i) => `${model}|${chunks.length}|${i}`;
 
   if (chunks.length === 1) {
     onProgress?.('Analisando o livro…', 0.1);
@@ -139,7 +156,7 @@ Leia o livro abaixo e produza:
 Formato: {"summary": "...", "ideas": [{"title": "", "description": "", "theme": "", "pages": [1], "quote": ""}]}
 
 TEXTO:
-${chunks[0].text}`);
+${chunks[0].text}`, 'ao analisar o livro');
     onProgress?.('Concluído', 1);
     return { summary: String(out.summary ?? '').trim(), ideas: verifyQuotes(normalizeIdeas(out.ideas, validPages), pages) };
   }
@@ -148,6 +165,10 @@ ${chunks[0].text}`);
   const partials = [];
   for (let i = 0; i < chunks.length; i++) {
     const c = chunks[i];
+    if (cache.has(cacheKey(i))) {
+      partials.push(cache.get(cacheKey(i)));
+      continue;
+    }
     onProgress?.(`Lendo parte ${i + 1} de ${chunks.length} (págs. ${c.from}–${c.to})…`, i / (chunks.length + 1));
     const out = await ask(`${header}
 Este é o trecho ${i + 1} de ${chunks.length} do livro (páginas ${c.from} a ${c.to}).
@@ -158,8 +179,10 @@ Produza:
 Formato: {"summary": "...", "ideas": [{"title": "", "description": "", "theme": "", "pages": [1], "quote": ""}]}
 
 TRECHO:
-${c.text}`);
-    partials.push({ from: c.from, to: c.to, summary: String(out.summary ?? ''), ideas: verifyQuotes(normalizeIdeas(out.ideas, validPages), pages) });
+${c.text}`, `na parte ${i + 1} de ${chunks.length} (págs. ${c.from}–${c.to})`);
+    const partial = { from: c.from, to: c.to, summary: String(out.summary ?? ''), ideas: verifyQuotes(normalizeIdeas(out.ideas, validPages), pages) };
+    cache.set(cacheKey(i), partial);
+    partials.push(partial);
   }
 
   // REDUCE
@@ -178,7 +201,7 @@ Consolide em:
 Formato: {"summary": "...", "ideas": [{"title": "", "description": "", "theme": "", "pages": [1], "quote": ""}]}
 
 PARTES:
-${JSON.stringify(digest)}`);
+${JSON.stringify(digest)}`, 'ao consolidar o resumo final');
   onProgress?.('Concluído', 1);
   return { summary: String(out.summary ?? '').trim(), ideas: verifyQuotes(normalizeIdeas(out.ideas, validPages), pages) };
 }

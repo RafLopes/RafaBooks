@@ -10,6 +10,8 @@ export { firebaseConfig } from './firebase-config.js';
 
 export const ai = {
   defaultModel: 'deepseek/deepseek-v4-flash',
+  // Usados automaticamente pelo OpenRouter se o modelo escolhido falhar.
+  fallbackModels: ['deepseek/deepseek-v4.1-flash'],
   // Tamanho de cada bloco de texto enviado ao modelo (~4 caracteres por token).
   chunkChars: 60_000,
   // Limite de texto extraído por livro. Acima disso a análise é recusada.

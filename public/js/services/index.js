@@ -5,7 +5,8 @@
 import { createFolderStorage } from './storage/folder-storage.js';
 import { createOpenRouterClient } from './ai/openrouter-client.js';
 import { getApiKey } from './ai/api-key-store.js';
+import { ai } from '../config/app-config.js';
 
 export const storage = createFolderStorage();
 
-export const aiClient = createOpenRouterClient({ getApiKey });
+export const aiClient = createOpenRouterClient({ getApiKey, fallbackModels: ai.fallbackModels });

@@ -23,6 +23,7 @@ export async function renderBookForm(root, id) {
     linked: null,        // PDF que já está na pasta ({ fileId, name, size }), sem cópia
     pdf: null,           // documento pdf.js aberto (para capa e análise)
     pages: null,         // texto extraído (cache para análise e citações)
+    analysisCache: new Map(), // partes já analisadas; permite retomar após uma falha
     cover: existing?.cover ?? null,
     analysis: existing?.analysis ?? { mode: 'manual' },
     busy: false,
@@ -44,6 +45,7 @@ export async function renderBookForm(root, id) {
     form.pdf?.destroy();
     form.pdf = null;
     form.pages = null;
+    form.analysisCache = new Map();
   }
 
   async function loadPdfPreview(blob) {
@@ -168,6 +170,7 @@ export async function renderBookForm(root, id) {
     onclick: runFindQuotes,
   }, icon('quote', { size: 16 }), 'Buscar citações');
   const cancelBtn = h('button', { type: 'button', class: 'btn ghost', hidden: true }, 'Cancelar');
+  const aiError = h('div', { class: 'banner error-banner', role: 'alert', hidden: true });
   const reviewBanner = h('div', { class: 'banner', hidden: true }, icon('sparkles', { size: 18 }), h('span', {}, 'Resultado gerado por IA. Revise, ajuste o que quiser e só então clique em Salvar.'));
 
   function refreshAi() {
@@ -193,6 +196,7 @@ export async function renderBookForm(root, id) {
     setBusy(true);
     aiProgress.hidden = false;
     cancelBtn.hidden = false;
+    aiError.hidden = true;
     try {
       if (!form.pages) {
         if (!form.pdf) {
@@ -203,7 +207,16 @@ export async function renderBookForm(root, id) {
       }
       await work({ pages: form.pages, progress, signal: controller.signal, model: getModel() });
     } catch (err) {
-      toast(errorMessage(err), 'error');
+      console.warn('[RafaBooks] Falha na tarefa de IA:', err?.message, err?.cause?.status ?? '');
+      const done = form.analysisCache.size;
+      mount(aiError, icon('x', { size: 18 }), h('div', {},
+        h('strong', {}, errorMessage(err)),
+        h('p', { style: 'margin:4px 0 0' }, done
+          ? `${done} ${done === 1 ? 'parte já foi lida e ficou guardada' : 'partes já foram lidas e ficaram guardadas'}. Clique em "Analisar PDF com IA" de novo para continuar de onde parou — nada é cobrado duas vezes.`
+          : 'Costuma ser uma falha temporária do provedor de IA. Tente de novo em alguns instantes.'),
+      ));
+      aiError.hidden = err?.name === 'AbortError';
+      if (err?.name === 'AbortError') toast(errorMessage(err), 'info');
     } finally {
       setBusy(false);
       aiProgress.hidden = true;
@@ -245,7 +258,9 @@ export async function renderBookForm(root, id) {
         limits: aiConfig,
         signal,
         onProgress: progress,
+        cache: form.analysisCache,
       });
+      form.analysisCache = new Map();
       summary.value = result.summary;
       setIdeas(result.ideas);
       form.analysis = { mode: 'ai', model, generatedAt: new Date().toISOString() };
@@ -351,6 +366,7 @@ export async function renderBookForm(root, id) {
         aiStatus,
         h('div', { class: 'row wrap' }, analyzeBtn, quotesBtn, cancelBtn),
         aiProgress,
+        aiError,
       ),
       reviewBanner,
       h('section', { class: 'panel stack' },
